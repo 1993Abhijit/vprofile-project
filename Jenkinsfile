@@ -2,8 +2,8 @@ pipeline {
     agent any
 
     tools {
-        maven "Maven3"
-        jdk "jdk21"
+        maven 'Maven3'
+        jdk 'jdk21'
     }
 
     environment {
@@ -22,18 +22,32 @@ pipeline {
 
     stages {
 
+        stage('Checkout') {
+            steps {
+                git branch: 'ci-jenkins',
+                url: 'https://github.com/1993Abhijit/vprofile-project.git'
+            }
+        }
+
+        stage('Verify Tools') {
+            steps {
+                sh 'java -version'
+                sh 'mvn -version'
+            }
+        }
+
         stage('Build') {
             steps {
                 sh 'mvn -s settings.xml clean install -DskipTests'
             }
             post {
                 success {
-                    archiveArtifacts artifacts: '**/*.war'
+                    archiveArtifacts artifacts: 'target/*.war'
                 }
             }
         }
 
-        stage('Test') {
+        stage('Unit Test') {
             steps {
                 sh 'mvn -s settings.xml test'
             }
@@ -45,7 +59,7 @@ pipeline {
             }
         }
 
-        stage('Sonar Analysis') {
+        stage('SonarQube Analysis') {
             environment {
                 scannerHome = tool "${SONARSCANNER}"
             }
@@ -57,6 +71,7 @@ pipeline {
                     ${scannerHome}/bin/sonar-scanner \
                     -Dsonar.projectKey=vprofile \
                     -Dsonar.projectName=vprofile \
+                    -Dsonar.projectVersion=${BUILD_NUMBER} \
                     -Dsonar.sources=src \
                     -Dsonar.java.binaries=target/classes
                     """
@@ -64,14 +79,22 @@ pipeline {
             }
         }
 
-        stage('Upload Artifact') {
+        stage('Quality Gate') {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+
+        stage('Upload Artifact To Nexus') {
             steps {
 
                 nexusArtifactUploader(
                     nexusVersion: 'nexus3',
                     protocol: 'http',
                     nexusUrl: "${NEXUS_IP}:${NEXUS_PORT}",
-                    groupId: 'QA',
+                    groupId: 'com.visualpathit',
                     version: "${BUILD_NUMBER}",
                     repository: "${RELEASE_REPO}",
                     credentialsId: "${NEXUS_LOGIN}",
@@ -97,6 +120,10 @@ pipeline {
 
         failure {
             echo 'Pipeline Failed'
+        }
+
+        always {
+            cleanWs()
         }
     }
 }
