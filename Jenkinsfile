@@ -1,36 +1,36 @@
 pipeline {
     agent any
+
     tools {
         maven "Maven3"
-        jdk "OracleJDK17"
+        jdk "jdk21"
     }
 
     environment {
-        SNAP_REPO = 'vprofile-snapshot'
-        NEXUS_USER = 'admin'
-        NEXUS_PASS = 'admin123'
-        RELEASE_REPO = 'vprofile-release'
-        CENTRAL_REPO = 'vpro-maven-central'
-        NEXUS_IP = '13.126.181.180'
-        NEXUS_PORT = '8081'
-        NEXUS_GRP_REPO = 'vpro-maven-group'
-        NEXUS_LOGIN = 'nexuslogin'
-        SONARSERVER = 'sonarserver'
-        SONARSCANNER = 'sonarscanner'
+        NEXUS_IP       = '13.126.181.180'
+        NEXUS_PORT     = '8081'
+
+        RELEASE_REPO   = 'maven-releases'
+        SNAP_REPO      = 'maven-snapshots'
+        NEXUS_GRP_REPO = 'maven-public'
+
+        NEXUS_LOGIN    = 'nexuslogin'
+
+        SONARSERVER    = 'sonarserver'
+        SONARSCANNER   = 'sonarscanner'
     }
 
     stages {
-        stage('Build'){
+
+        stage('Build') {
             steps {
-                sh 'mvn -s settings.xml -DskipTests install'
+                sh 'mvn -s settings.xml clean install -DskipTests'
             }
             post {
                 success {
-                    echo 'Archiving'
                     archiveArtifacts artifacts: '**/*.war'
                 }
             }
-            
         }
 
         stage('Test') {
@@ -45,43 +45,58 @@ pipeline {
             }
         }
 
-        stage ('Sonar Analysis') {
+        stage('Sonar Analysis') {
             environment {
-                scannerHome = tool "${SONARSCANNER}" 
+                scannerHome = tool "${SONARSCANNER}"
             }
+
             steps {
                 withSonarQubeEnv("${SONARSERVER}") {
-                    sh '''${scannerHome}/bin/sonar-scanner -Dsonar.projectKey=vprofile \
+
+                    sh """
+                    ${scannerHome}/bin/sonar-scanner \
+                    -Dsonar.projectKey=vprofile \
                     -Dsonar.projectName=vprofile \
-                    -Dsonar.projectVersion=1.0 \
-                    -Dsonar.sources=src/ \
-                    -Dsonar.java.binaries=target/test-classes/com/visualpathit/account/controllerTest/ \
-                    -Dsonar.junit.reportsPath=target/surefire-reports/ \
-                    -Dsonar.jacoco.reportsPath=target/jacoco.exec \
-                    -Dsonar.java.checkstyle.reportPaths=target/checkstyle-result.xml'''
+                    -Dsonar.sources=src \
+                    -Dsonar.java.binaries=target/classes
+                    """
                 }
             }
         }
 
-         stage ("Upload Artifact") {
+        stage('Upload Artifact') {
             steps {
+
                 nexusArtifactUploader(
-                  nexusVersion: 'nexus3',
-                  protocol: 'http',
-                  nexusUrl: "${NEXUS_IP}:${NEXUS_PORT}",  
-                  groupId: 'QA',
-                  version: "${env.BUILD_ID}-${env.BUILD_TIMESTAMP}",
-                  repository: "${RELEASE_REPO}",
-                  credentialsId: "${NEXUS_LOGIN}", 
-                  artifacts: [
-                    [artifactId: 'vproapp',
-                     classifier: '',
-                     file: 'target/vprofile-v2.war',
-                     type: 'war']
-                  ]
+                    nexusVersion: 'nexus3',
+                    protocol: 'http',
+                    nexusUrl: "${NEXUS_IP}:${NEXUS_PORT}",
+                    groupId: 'QA',
+                    version: "${BUILD_NUMBER}",
+                    repository: "${RELEASE_REPO}",
+                    credentialsId: "${NEXUS_LOGIN}",
+
+                    artifacts: [
+                        [
+                            artifactId: 'vprofile',
+                            classifier: '',
+                            file: 'target/vprofile-v2.war',
+                            type: 'war'
+                        ]
+                    ]
                 )
             }
         }
-    
-    }        
+    }
+
+    post {
+
+        success {
+            echo 'Pipeline Completed Successfully'
+        }
+
+        failure {
+            echo 'Pipeline Failed'
+        }
+    }
 }
